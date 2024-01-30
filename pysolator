@@ -21,7 +21,7 @@ list_ordered_params_binary = ['BINARY', 'A1',   'E', 'ECC', 'OM',  'T0',   'EPS1
 list_ordered_params_binary_T2 = ['BINARY','A1', 'ECC',  'OM',  'T0',  'EPS1', 'EPS2',  'TASC', 'OMDOT', 'PB', 'PBDOT', 'XPBDOT', 'FB0', 'FB1',   'FB2',   'FB3',   'FB4',   'FB5',   'FB6',   'FB7',   'FB8',   'FB9','FB10','FB11','FB12','FB13','GAMMA', 'SINI', 'MTOT', 'M2', 'XDOT', 'EDOT', 'DTHETA', 'DR']
 
 
-def deconvolve_binary_signal_eccentric_orbit_SUPERFAST(t, y, Pb_s, x_p_lts, omega_p, ecc, T0, Mp_g, gamma_p_s, dR, dTheta, Shapiro_Range, Shapiro_Shape, Tstart, list_q, ncpus=1, list_components_to_demodulate=['pulsar','companion']):
+def deconvolve_binary_signal_eccentric_orbit_SUPERFAST(t, y, Pb_s, x_p_lts, omega_p, ecc, T0, Mp_g, gamma_p_s, dR, dTheta, Shapiro_Range, Shapiro_Shape, Tstart, ncpus=1, list_components_to_demodulate=['pulsar','companion']):
         N_samples_orbit_original = 100000
         N_samples_orbit = int(N_samples_orbit_original/np.float64(ncpus) + 1)*ncpus   #find multiple of cpus
         input_array_M_frac_p = np.linspace(0, 1, N_samples_orbit)
@@ -222,13 +222,9 @@ def import_parfile( infile ):
 
 
 def make_with_even_number_of_samples(array):
-        #print "Checking if the time series has an even number of points..."
         if len(array) % 2 == 0:
-                #print "Ok, the array s has %d samples, which is divisible by 2!" % len(array)
                 return array
         else:
-                #print "Mmm, the deconvolved time series has %d samples, which is NOT divisible by 2!" % len(array)
-                #print "Then I will remove 1 sample..."
                 return array[:-1]
         
 
@@ -243,14 +239,13 @@ def multiprocessing_mean_to_true_anomaly_FRAC(ecc, array_M, queue_object, id_num
         queue_object.put( [{'data': mean_to_true_anomaly_FRAC(ecc, array_M), 'id_num': id_num  }] )
 
 def mean_to_true_anomaly_FRAC(ecc, array_M):
-        array_E = solve_mean_to_eccentric_FRAC_numpy(ecc, array_M)      
-        #print "mean_to_true_anomaly_FRAC: array_E = %s" % array_E
+        array_E = solve_mean_to_eccentric_FRAC_numpy(ecc, array_M)
         array_T = 2.*np.arctan (  np.sqrt( (1.+ecc)/(1.-ecc) )*np.tan(array_E/2.)    )
 
         mask = array_T<0
         array_T[mask] = array_T[mask] + 2*np.pi 
 
-        return array_T / (2*np.pi)  #resitituisco frazionario
+        return array_T / (2*np.pi)
 
 
 def func_y(x, ecc, M):
@@ -560,9 +555,9 @@ list_components_to_demodulate = ['pulsar', 'companion']
 output_angles_filename = ""
 input_angles_filename = ""
 
-string_version = "0.6 (06Nov2023)"
+string_version = "0.6.1 (30Jan2024)"
 if  (len(sys.argv) == 1 or ("-h" in sys.argv) or ("-help" in sys.argv) or ("--help" in sys.argv)):
-        print("Usage1: %s [-Q] -par <normal_parfile> -datfile <BARYCENTERED!!_time_series> [-dt 0.000070] [-numout N] [-ncpus N] [-Mp_Mc \"1.4,2.0\"] {-comp_only | -pulsar_only} [-o outfile_basename]" % (os.path.basename(sys.argv[0])))
+        print("Usage1: %s [-Q] -par <normal_parfile> -datfile <BARYCENTERED!!_time_series> [-dt 0.000070] [-numout N] [-ncpus N] [-Mp_Mc \"1.4,2.0,0.1\"] {-comp_only | -pulsar_only} [-o outfile_basename]" % (os.path.basename(sys.argv[0])))
         print() 
         print("Output:  isol_<datfile_basename>_p.dat   ---> Demodulated orbit for the pulsar, useful to check whether the demodulation was done correctly")
         print("         isol_<datfile_basename>_c.dat   ---> Demodulated orbit for the companion, which you may want to search")
@@ -692,9 +687,16 @@ else:
         
         x_p_lts = np.float64(dict_parfile_pulsar['A1'])
 
-        try:      ecc = np.float64(dict_parfile_pulsar['E'])
-        except:   ecc = np.float64(dict_parfile_pulsar['ECC'])
-
+        try:
+                ecc = np.float64(dict_parfile_pulsar['E'])
+                
+        except:
+                try:
+                        ecc = np.float64(dict_parfile_pulsar['ECC'])
+                except:
+                        print("\033[1mWARNING\033[0m: 'E' or 'ECC' not found in the parfile. Assuming ECC=0...")
+                        ecc = 0.0
+                        
         try:      Mtot = np.float64(dict_parfile_pulsar['MTOT'])
         except:   Mtot = 0
 
@@ -705,7 +707,13 @@ else:
 
 
         
-        omega_T0 = np.float64(dict_parfile_pulsar['OM'])
+        try:
+                omega_T0 = np.float64(dict_parfile_pulsar['OM'])
+        except: 
+                print("\033[1mWARNING\033[0m: 'OM' not found in the parfile. Assuming OM=0...")
+                omega_T0 = 0
+                
+        
 
         try:      omega_dot = np.float64(dict_parfile_pulsar['OMDOT'])   #deg/year
         except:   omega_dot = 0   #deg/year
@@ -746,14 +754,16 @@ else:
             Mp_g = Mtot_g - Mc_g
             
             a = np.power(     ( np.power(Pb_s_T0, 2.)*G * (Mp_g+Mc_g) /(4*np.power(np.pi, 2.) ))  ,  1./3.) * np.sin(inc_rad)
-
+            q_nominal = Mp_g/Mc_g
         except:
-                        print("   \033[1mWARNING\033[0m: Could not infer the mass ratio (q = Mp/Mc) of the system from the ephemeris file (probably M2/MTOT/SINI parameters are missing). The companion orbit cannot be de-modulated.")
-                        print("            However, you can always manually specify the mass ratio with the \"-Mp_Mc\" option.")
+                if len(list_q) == 0:
+                        print("\033[1mWARNING\033[0m: Could not infer the mass ratio (q = Mp/Mc) of the system from the ephemeris file (probably M2/MTOT/SINI parameters are missing). The companion orbit cannot be de-modulated.")
+                        print("         However, you can always manually specify the mass ratio with the \"-Mp_Mc\" option.")
                         print()
-                        list_components_to_demodulate = ['pulsar']
-        q_nominal = Mp_g/Mc_g
-        if list_q == []:
+                list_components_to_demodulate = ['pulsar']
+                q_nominal = 1
+        
+        if len(list_q) == 0:
             list_q = [q_nominal ]
             
         
@@ -775,7 +785,7 @@ else:
                 print("%60s = %27.20f" % ( "Orbital Eccentricity (ECC)", ecc ))
                 print("%60s = %27.20f deg" % ( "Longitude of Periastron (OM)", omega_T0 ))
                 print()
-                #print "Binary Parameters (Post-Keplerian):"
+                print("Binary Parameters (Post-Keplerian):")
                 print("%60s  |  %11s = %27.20f   deg/yr" % ( "Rate of advance of periastron", "OMDOT", omega_dot ))
                 print("%60s  |  %11s = %27.20e   s/s " % ( "Orbital Period Derivative", "PBDOT", Pb_s_dot ))
                 print("%60s  |  %11s = %27.20f   Msun" % ( "Total Mass", "MTOT", Mtot/M_SUN_CGS))       
@@ -918,9 +928,9 @@ else:
 if verbosity_level >= 1: print("3) De-modulating the orbit of the %s%s using %d CPU%s%s..." % (string_demodulated_components, string_mass_ratio_used, ncpus, string_plural, string_warning_compute_time), end=' '); sys.stdout.flush()
 time_deconvolution_start = time.time()
 if ecc > 0:
-        array_eccentric_anomalies_p, array_roemer_delays_p, ts_deconvolved_p, ys_deconvolved = deconvolve_binary_signal_eccentric_orbit_SUPERFAST(ts, ys, Pb_s, x_p_lts, omega_p, ecc, T0, Mp_g, gamma_p_s, dR, dTheta, Shapiro_Range, Shapiro_Shape, Tstart, list_q, ncpus, list_components_to_demodulate)
-else:
-        ts_deconvolved_c, ts_deconvolved_p, ys_deconvolved = deconvolve_binary_signal_circular_orbit(ts, ys, Pb_s, x_p_lts, T0, Tstart, q, ncpus, list_components_to_demodulate)
+        array_eccentric_anomalies_p, array_roemer_delays_p, ts_deconvolved_p, ys_deconvolved = deconvolve_binary_signal_eccentric_orbit_SUPERFAST(ts, ys, Pb_s, x_p_lts, omega_p, ecc, T0, Mp_g, gamma_p_s, dR, dTheta, Shapiro_Range, Shapiro_Shape, Tstart, ncpus, list_components_to_demodulate)
+else:       
+        ts_deconvolved_c, ts_deconvolved_p, ys_deconvolved = deconvolve_binary_signal_circular_orbit(ts, ys, Pb_s, x_p_lts, T0, Tstart, list_q[0], ncpus, list_components_to_demodulate)
 time_deconvolution_end = time.time()
 if verbosity_level >= 1: print("done in %.2f seconds!" % (time_deconvolution_end - time_deconvolution_start))
 
